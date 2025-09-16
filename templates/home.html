@@ -1,0 +1,21 @@
+<html>
+    <body>
+    <p>Hello {{user}}</p> 
+
+    <div>
+    <form action="/Room/create">
+        <button type="submit"> Create new chat room</button>
+    </form>
+    </div>
+    <br>
+    <div>
+        <form action ="/Room/join" method="POST">
+            <label>Join room id:</label>
+            <input type="text" id="roomID", name="roomID" required>
+            <button type="submit">join</button>
+        </form>
+    </div>
+    </body>
+
+
+</html>

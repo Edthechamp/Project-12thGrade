@@ -10,8 +10,24 @@ class User(UserMixin):
         #flask_login parasti strada ar integer IDs, tpe overwritoju UserMixin class lai returno vnk username pagaidam
         return self.username
 
-    def login(self, entered_username,entered_password):
-        pass
 
-    def getData(self):
-        return self.username,self.__password
+    
+class Room():
+    def __init__(self,roomid):
+        self.__roomID = roomid
+        self.messages = []
+        self.usersON = []
+
+    def userJoined(self,username):
+        if username not in self.usersON:
+            self.usersON.append(username)
+
+    def userLeft(self,username):
+        if username in self.usersON:
+            self.usersON.remove(username)
+
+    def addMessage(self,user,msg):
+        self.messages.append([user,msg])
+
+    def getMessages(self):
+        return self.messages

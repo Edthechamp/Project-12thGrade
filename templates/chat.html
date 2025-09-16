@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Room {{ roomid }}</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Chat Room: {{ roomid }}</h1>
+    <div id="chat-box" style="border:1px solid black; height:300px; overflow:auto;"></div>
+    <input type="text" id="msgInput" placeholder="Type message...">
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        const socket = io();
+        const room = "{{ roomid }}";  
+
+        // join the room
+        socket.emit("join", {room: room});
+
+        socket.on("new_message", data => {
+            console.log("new message triigered", data)
+            const chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML += `<p><b>${data.user}:</b> ${data.text}</p>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+
+        socket.on("status", data => {
+            const chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML += `<p><i>${data.msg}</i></p>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+
+        function sendMessage() {
+            const input = document.getElementById("msgInput");
+            if(input.value.trim() !== "") {
+                socket.emit("send_message", {room: room, text: input.value});
+                input.value = "";
+            }
+        }
+
+        window.addEventListener("beforeunload", () => {
+            socket.emit("leave", {room: room});
+        });
+    </script>
+</body>
+</html>

@@ -1,9 +1,13 @@
-from flask import Flask, jsonify, request, redirect, url_for
+from flask import Flask, jsonify, request, redirect, url_for, render_template
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from objects import User
 import sqlite3
+import uuid
+from flask_socketio import SocketIO, emit, join_room, leave_room, send
+
+from objects import User, Room
 
 app = Flask(__name__)
+socketio=SocketIO(app)
 app.secret_key="verysecret"
 
 login_manager = LoginManager()
@@ -21,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 )
 conn.close()
 
+###!! SIGNUP AND LOGIN SYSTEM !!###
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -37,7 +42,7 @@ def load_user(user_id):
 @app.route("/")
 def home():
     if current_user.is_authenticated:
-        return f"currently logged in as: {current_user.get_id()}"
+        return render_template("home.html", user=current_user.get_id())
     return "home, no login"
 
 
@@ -99,4 +104,48 @@ def login():
     return redirect("/")
 
 
-app.run()
+###!! CHAT ROOM FUNCTIONALLITY !!###
+openRooms = {}
+
+
+@app.route("/Room/create")
+def chatCreate():
+    randomID = str(uuid.uuid4())[:6]
+
+    while randomID in openRooms.keys(): 
+        randomID=str(uuid.uuid4())[:6]
+    
+    openRooms[randomID] = Room(randomID)
+
+    #redirect, lai user kurs creato room ari tiek ielikts jaunaja room
+    return redirect(url_for("joinRoom",roomID=randomID))
+
+@app.route("/Room/join",  methods=["POST"])
+def passToJoin():
+    roomID = request.form.get("roomID")
+    return redirect(url_for("joinRoom",roomID=roomID))
+
+@app.route("/Room/join/<roomID>")
+def joinRoom(roomID):
+    username=current_user.get_id()
+    openRooms[roomID].userJoined(username)
+    return render_template("chat.html",roomid=roomID,username=username)
+
+##socket io functions:
+
+@socketio.on("join")
+def socketInit(data):
+    join_room(data['room'])
+    print(current_user.get_id(), "has joined the room: ", data['room'])
+    emit("new_message", {"user": current_user.get_id(), "text": "has joined the room"}, room=data["room"])
+
+@socketio.on("send_message")
+def transferMsg(data):
+    emit("new_message",{"user":current_user.get_id(),"text":data["text"]},room=data['room'])
+    
+
+@socketio.on("leave")
+def userLeave(room):
+    emit("new_message",{"user":current_user.get_id(),"text":"left the chat"},room=room)
+
+socketio.run(app, host="0.0.0.0", port=5000, debug=True)
