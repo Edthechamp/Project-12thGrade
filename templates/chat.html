@@ -18,7 +18,8 @@
         socket.emit("join", {room: room});
 
         socket.on("new_message", data => {
-            console.log("new message triigered", data)
+            
+            console.log("sent message", data)
             const chatBox = document.getElementById("chat-box");
             chatBox.innerHTML += `<p><b>${data.user}:</b> ${data.text}</p>`;
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -30,6 +31,12 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         });
 
+        socket.on("unauthorized", data => {
+        alert(data.msg);
+        window.location.href = "/login"; 
+        });
+
+
         function sendMessage() {
             const input = document.getElementById("msgInput");
             if(input.value.trim() !== "") {
@@ -39,7 +46,9 @@
         }
 
         window.addEventListener("beforeunload", () => {
+            console.log("someone left")
             socket.emit("leave", {room: room});
+            
         });
     </script>
 </body>
