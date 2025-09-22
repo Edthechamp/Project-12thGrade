@@ -3,8 +3,10 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 import sqlite3
 import uuid
 from flask_socketio import SocketIO, emit, join_room, leave_room, send
+import time
+from threading import Thread
 
-from objects import User, Room
+from objects import User, Room, ZooGame
 
 app = Flask(__name__)
 socketio=SocketIO(app)
@@ -15,6 +17,11 @@ login_manager.init_app(app)
 
 conn=sqlite3.connect("database.db")
 c=conn.cursor()
+
+
+activeGames= {}
+#{"RoomID":GameObj} gambeOBJ.players() => {"username":characterOBJ}
+
 
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
@@ -45,7 +52,7 @@ conn.close()
 
 @login_manager.user_loader
 def load_user(user_id):
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect("database.db")  
     c = conn.cursor()
     c.execute("SELECT username, password FROM users WHERE username=?",(user_id,))
     row = c.fetchone()
@@ -188,7 +195,7 @@ def joinRoom(roomID):
 @socketio.on("join")
 def socketInit(data):
     if not current_user.is_authenticated:
-        emit("unauthorized", {"msg": "You must log in first"})
+        socketio.emit("unauthorized", {"msg": "You must log in first"})
         return
     
     join_room(data['room'])
@@ -200,32 +207,122 @@ def socketInit(data):
         past_messages = c.fetchall()
 
     for user, text in past_messages:
-        emit("new_message", {"user": user, "text": text})
+        socketio.emit("new_message", {"user": user, "text": text})
 
 
 
-    emit("new_message", {"user": current_user.get_id(), "text": "has joined the room"}, room=data["room"])
+    socketio.emit("new_message", {"user": current_user.get_id(), "text": "has joined the room"}, room=data["room"])
 
 
 
 @socketio.on("send_message")
 def transferMsg(data):
+    answer=message_check(data)
+    if answer=="none":
+        conn = sqlite3.connect('database.db')
+        c=conn.cursor()
+        c.execute("INSERT INTO messages (roomID,username,message) VALUES (?,?,?)",(data["room"],current_user.get_id(),data["text"]))
+        conn.commit()
+        conn.close()
 
-    conn = sqlite3.connect('database.db')
-    c=conn.cursor()
-    c.execute("INSERT INTO messages (roomID,username,message) VALUES (?,?,?)",(data["room"],current_user.get_id(),data["text"]))
-    conn.commit()
-    conn.close()
-
-    emit("new_message",{"user":current_user.get_id(),"text":data["text"]},room=data['room'])
+        socketio.emit("new_message",{"user":current_user.get_id(),"text":data["text"]},room=data['room'])
     
+    else:
+        socketio.emit("new_message",{"user":current_user.get_id(),"text":answer},room=data['room'])
+
+
+    
+def message_check(data):
+    room=data["room"]
+
+    commands=data["text"].split()
+
+    if commands[0] not in ["//play"]:
+        return "none"
+    
+    if commands[0]=="//play":
+        if len(commands)==1:
+            return "missing game selector"
+        if commands[1]not in ["zoo"]:
+            return "no game called " + commands[1]
+        
+        if len(commands)==2:
+            return "missing character selector "
+        if commands[2] not in ["cow","pig","horse","bull"]:
+            return "game " + commands[1] + " has no character "+ commands[2]
+        
+        game_room=str(room+'-'+commands[1])
+        join_room(game_room)
+
+        socketio.emit("game_start", {
+        "game": "zoo",
+        "character": commands[2],
+        "room": game_room,
+        "user":current_user.get_id()},
+        room=request.sid)
+
+        if game_room not in activeGames.keys():
+            activeGames[game_room] = ZooGame()
+        
+        animal = ZooGame.Animal(commands[2])
+        activeGames[game_room].joined(current_user.get_id(), animal)
+
+        return "started playing ZOO as "+commands[2]
+
+    
+def player(roomID):
+    return activeGames[roomID].players()[current_user.get_id()] 
+
+@socketio.on("zooGameStarted")
+def ZooStarted(data):
+    room = data["room"]
+    print("zoo started for player "+ current_user.get_id() + " as "+data["character"] + " in room:"+room)   
+
+    if current_user.get_id() not in activeGames[room].players():
+        animal = ZooGame.Animal(data["character"])
+        activeGames[room].joined(current_user.get_id(), animal)
+
+    print(activeGames[room].players())        
+
+    socketio.emit("place_player",{"player":current_user.get_id(),
+                         "character":data["character"],
+                         "x":player(room).x,"y":player(room).y}, room=room)  
+    
+    if not hasattr(activeGames[room], "position_thread"):
+        def run():
+            while True:
+                pushPosition(room)
+                time.sleep(1/60.0) 
+        activeGames[room].position_thread = Thread(target=run, daemon=True)
+        activeGames[room].position_thread.start()
+    
+
+@socketio.on("update_position") 
+def positionSync(data):
+    #print(data)
+    p = player(data["room"])
+    p.position(data["x"],data["y"])
+    pushPosition(data["room"])
+
+
+def pushPosition(room):
+    gameObj=activeGames[room]
+    
+
+    data=[]
+    for player in gameObj.players().keys():
+        playerObj = gameObj.players()[player]
+        data.append({"playerID":player,"x":playerObj.x,"y":playerObj.y}) 
+
+    socketio.emit("pushPositions",data,room=room)
+    print("sent data", data)
+
 
 @socketio.on("leave")
 def userLeave(room):
-    emit("new_message",{"user":current_user.get_id(),"text":"left the chat"},room=room)
+    socketio.emit("new_message",{"user":current_user.get_id(),"text":"left the chat"},room=room)
 
 
-### custom "/" commands
 
 
 socketio.run(app, debug=True)

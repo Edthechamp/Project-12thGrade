@@ -23,6 +23,7 @@
             const chatBox = document.getElementById("chat-box");
             chatBox.innerHTML += `<p><b>${data.user}:</b> ${data.text}</p>`;
             chatBox.scrollTop = chatBox.scrollHeight;
+
         });
 
         socket.on("status", data => {
@@ -45,11 +46,116 @@
             }
         }
 
+        document.addEventListener("keydown",function(event)
+        {if(event.key=="Enter")
+            {sendMessage();}
+    })
+
         window.addEventListener("beforeunload", () => {
             console.log("someone left")
             socket.emit("leave", {room: room});
             
         });
+
+// Zoo game
+let canvas;
+let ctx;
+let players = {};
+let ME;        
+let GameRoom;  
+
+socket.on("game_start", data => {
+    if (data.game == "zoo") {
+        if (!document.getElementById("zoo-game")) {
+            const c = document.createElement("canvas");
+            c.id = "zoo-game";
+            c.width = 700;
+            c.height = 500;
+            c.style.border = "1px solid black";
+            document.body.appendChild(c);
+        }
+
+        canvas = document.getElementById("zoo-game");
+        ctx = canvas.getContext("2d");
+
+        ME = data.user;
+        GameRoom = data.room;
+
+        startZooGame(data.room, data.character);
+    }
+});
+
+function startZooGame(room, character) {
+    socket.emit("zooGameStarted", { room: room, character: character });
+}
+
+socket.on("place_player", data => {
+    const { player, character, x, y } = data;
+    players[player] = { character, x, y };
+    drawPlayers();
+});
+
+function drawPlayers() {
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (const playerId in players) {
+        const p = players[playerId];
+        ctx.fillStyle = getColor(p.character);
+        ctx.fillRect(p.x, p.y, 50, 50);
+        ctx.fillStyle = 'black';
+        ctx.fillText(playerId, p.x, p.y);
+    }
+}
+
+function getColor(animal) {
+    switch (animal) {
+        case 'cow': return 'brown';
+        case 'pig': return 'pink';
+        case 'horse': return 'gray';
+        default: return 'black';
+    }
+}
+
+// Key handling
+let keys = {};
+document.addEventListener("keydown", (e) => keys[e.key] = true);
+document.addEventListener("keyup", (e) => keys[e.key] = false);
+
+function localMovement() {
+    if (!ME || !players[ME]) return;
+
+    let player = players[ME];
+
+    if (keys["w"] || keys["W"]) {
+        player.y -= 5;
+        console.log("registered W key");
+    }
+    if (keys["s"] || keys["S"]) player.y += 5;
+    if (keys["a"] || keys["A"]) player.x -= 5;
+    if (keys["d"] || keys["D"]) player.x += 5; 
+    
+    console.log(player.x, player.y);
+    socket.emit("update_position", { room: GameRoom, x: player.x, y: player.y });
+}
+
+
+setInterval(localMovement, 1000 / 60);
+
+socket.on("pushPositions", data => {
+    for (const p of data) {
+        players[p.playerID].x = p.x;
+        players[p.playerID].y = p.y;
+       
+    }
+    drawPlayers();
+});
+
+
+
+
+
     </script>
 </body>
 </html>
